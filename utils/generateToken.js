@@ -13,11 +13,15 @@ export const sendTokenResponse = (user, statusCode, res) => {
 
   const cookieExpiresDays = Number(process.env.JWT_COOKIE_EXPIRES_DAYS) || 7;
 
+  // Cross-origin deployments (frontend on Vercel, backend on Vercel/Render)
+  // require Secure + SameSite=None for the browser to send the cookie at all.
+  // We always use these flags — local dev with http://localhost still works
+  // because modern browsers allow SameSite=None on localhost.
   const cookieOptions = {
     expires: new Date(Date.now() + cookieExpiresDays * 24 * 60 * 60 * 1000),
-    httpOnly: true, // not accessible via client-side JS — mitigates XSS token theft
-    secure: process.env.NODE_ENV === "production", // HTTPS only in prod
-    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    httpOnly: true,
+    secure: true,
+    sameSite: "none",
     path: "/",
   };
 

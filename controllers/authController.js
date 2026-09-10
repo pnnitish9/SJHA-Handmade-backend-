@@ -44,13 +44,13 @@ export const login = asyncHandler(async (req, res) => {
 // @route   POST /api/auth/logout
 // @access  Private
 export const logout = asyncHandler(async (req, res) => {
-  // Must match the same flags used when setting the cookie in sendTokenResponse,
-  // otherwise the browser won't clear the original cookie.
+  // Must use the same Secure + SameSite=None flags as the login cookie,
+  // otherwise the browser treats them as different cookies and won't clear it.
   res.cookie("token", "none", {
     expires: new Date(Date.now() + 10 * 1000),
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    secure: true,
+    sameSite: "none",
     path: "/",
   });
   res.status(200).json({ success: true, message: "Logged out successfully." });
