@@ -15,6 +15,7 @@ const customOrderSchema = new mongoose.Schema(
       default: "submitted",
     },
     adminNotes: { type: String },
+    quotedPrice: { type: Number, default: null }, // set by admin when approving
     convertedOrder: { type: mongoose.Schema.Types.ObjectId, ref: "Order" },
   },
   { timestamps: true }

@@ -82,7 +82,7 @@ if (process.env.NODE_ENV === "development") {
 // Authentication rate limiter
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  max: 200,
   message: {
     success: false,
     message: "Too many attempts. Please try again later.",
@@ -126,10 +126,7 @@ app.use("/api/categories", categoryRoutes);
 
 app.use("/api/products", productRoutes);
 
-app.use(
-  "/api/products",
-  productReviewRoutes
-); // GET /api/products/:productId/reviews
+app.use("/api/products", productReviewRoutes);
 
 app.use("/api/cart", cartRoutes);
 

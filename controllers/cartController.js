@@ -32,6 +32,15 @@ export const getCart = asyncHandler(async (req, res) => {
     cart = await Cart.create({ user: req.user._id, items: [] });
   }
 
+  // Auto-prune items whose product has been deleted by the admin.
+  // populate() sets item.product to null for missing documents — filter
+  // those out and persist the cleaned cart so they don't keep reappearing.
+  const hadStaleItems = cart.items.some((item) => item.product === null);
+  if (hadStaleItems) {
+    cart.items = cart.items.filter((item) => item.product !== null);
+    await cart.save();
+  }
+
   res.status(200).json({ success: true, cart });
 });
 
@@ -100,6 +109,13 @@ export const updateCartItem = asyncHandler(async (req, res) => {
   if (!item) return res.status(404).json({ success: false, message: "Cart item not found." });
 
   const product = await Product.findById(item.product);
+  if (!product) {
+    // Product was deleted after being added to the cart — remove the stale item
+    cart.items = cart.items.filter((i) => i._id.toString() !== req.params.itemId);
+    await cart.save();
+    return res.status(404).json({ success: false, message: "This product is no longer available and has been removed from your cart." });
+  }
+
   const availableStock = resolveStock(product, item.variantId);
   if (quantity > availableStock) {
     return res.status(400).json({ success: false, message: `Only ${availableStock} left in stock.` });

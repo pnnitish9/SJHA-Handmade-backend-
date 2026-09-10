@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import Payment from "../models/Payment.js";
 import Order from "../models/Order.js";
+import CustomOrder from "../models/CustomOrder.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { notify } from "../utils/notify.js";
 
@@ -52,6 +53,12 @@ export const verifyPayment = asyncHandler(async (req, res) => {
   order.status = "confirmed";
   order.statusHistory.push({ status: "confirmed", note: "Payment verified" });
   await order.save();
+
+  // If this order originated from a custom order request, mark that request
+  // as converted so the customer's custom orders list updates correctly.
+  if (order.source === "custom" && order.customOrderRef) {
+    await CustomOrder.findByIdAndUpdate(order.customOrderRef, { status: "converted" });
+  }
 
   notify({
     user: order.user,
@@ -111,6 +118,11 @@ export const handleWebhook = async (req, res) => {
             order.statusHistory.push({ status: "confirmed", note: "Payment confirmed via webhook" });
           }
           await order.save();
+
+          // Flip custom order to converted if applicable
+          if (order.source === "custom" && order.customOrderRef) {
+            await CustomOrder.findByIdAndUpdate(order.customOrderRef, { status: "converted" });
+          }
         }
       }
     }

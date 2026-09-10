@@ -26,8 +26,27 @@ class APIFeatures {
     const excludedFields = ["page", "sort", "limit", "search", "fields"];
     excludedFields.forEach((field) => delete queryObj[field]);
 
+    // Whitelist of fields that are allowed as filters.
+    // Any field not in this list is silently dropped, which prevents
+    // MongoDB operator injection (e.g. ?status[$ne]=...).
+    const ALLOWED_FILTER_FIELDS = new Set([
+      "category",
+      "isFeatured",
+      "isAvailable",
+      "price",
+      "tags",
+      "status",
+    ]);
+
+    const safeQuery = {};
+    for (const key of Object.keys(queryObj)) {
+      if (ALLOWED_FILTER_FIELDS.has(key)) {
+        safeQuery[key] = queryObj[key];
+      }
+    }
+
     // Convert { price: { gte: '200' } } style bracket notation into Mongo operators
-    let queryStr = JSON.stringify(queryObj);
+    let queryStr = JSON.stringify(safeQuery);
     queryStr = queryStr.replace(/\b(gte|gt|lte|lt)\b/g, (match) => `$${match}`);
     const parsed = JSON.parse(queryStr);
 

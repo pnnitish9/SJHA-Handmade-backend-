@@ -48,7 +48,7 @@ const orderSchema = new mongoose.Schema(
     shippingFee: { type: Number, default: 0 },
     total: { type: Number, required: true },
 
-    paymentMethod: { type: String, enum: ["razorpay"], required: true },
+    paymentMethod: { type: String, enum: ["razorpay", "cod"], required: true },
     paymentStatus: {
       type: String,
       enum: ["pending", "paid", "failed", "refunded"],
@@ -65,6 +65,8 @@ const orderSchema = new mongoose.Schema(
 
     trackingNumber: { type: String },
     isReviewed: { type: Boolean, default: false },
+    source: { type: String, enum: ["shop", "custom"], default: "shop" }, // "custom" = originated from a custom order request
+    customOrderRef: { type: mongoose.Schema.Types.ObjectId, ref: "CustomOrder", default: null },
   },
   { timestamps: true }
 );

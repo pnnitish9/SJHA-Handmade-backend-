@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import Review from "../models/Review.js";
 import Order from "../models/Order.js";
 import Product from "../models/Product.js";
@@ -6,8 +7,16 @@ import { uploadManyToCloudinary } from "../utils/cloudinaryUpload.js";
 
 // Recalculates and persists a product's ratingsAverage / ratingsCount
 async function recalculateProductRating(productId) {
+  // Aggregation pipelines do NOT auto-coerce strings to ObjectIds the way
+  // Mongoose find() does. Always cast here so $match works regardless of
+  // whether productId arrived as a FormData string or a Mongoose ObjectId.
+  const oid =
+    productId instanceof mongoose.Types.ObjectId
+      ? productId
+      : new mongoose.Types.ObjectId(String(productId));
+
   const stats = await Review.aggregate([
-    { $match: { product: productId, isHidden: false } },
+    { $match: { product: oid, isHidden: false } },
     { $group: { _id: "$product", avg: { $avg: "$rating" }, count: { $sum: 1 } } },
   ]);
 
@@ -26,6 +35,20 @@ export const getProductReviews = asyncHandler(async (req, res) => {
     .populate("user", "name")
     .sort("-createdAt");
   res.status(200).json({ success: true, count: reviews.length, reviews });
+});
+
+// @desc    Return product IDs the current user has already reviewed for a given order
+// @route   GET /api/reviews/my-reviewed-products?orderId=<id>
+// @access  Private
+export const getMyReviewedProducts = asyncHandler(async (req, res) => {
+  const { orderId } = req.query;
+  const filter = { user: req.user._id };
+  if (orderId) filter.order = orderId;
+
+  const reviews = await Review.find(filter).select("product -_id");
+  const reviewedProductIds = reviews.map((r) => r.product.toString());
+
+  res.status(200).json({ success: true, reviewedProductIds });
 });
 
 // @desc    Submit a review — only for a product in an order the user placed
@@ -68,6 +91,10 @@ export const createReview = asyncHandler(async (req, res) => {
   });
 
   await recalculateProductRating(productId);
+
+  // Mark the order as reviewed so the customer can't see the "Write a review"
+  // prompt again after a page reload (the frontend also uses this flag).
+  await Order.findByIdAndUpdate(orderId, { isReviewed: true });
 
   res.status(201).json({ success: true, review });
 });
