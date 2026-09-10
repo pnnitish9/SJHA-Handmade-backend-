@@ -34,21 +34,13 @@ import notificationRoutes from "./routes/notificationRoutes.js";
 const app = express();
 
 
-// ======================================================
-// RAZORPAY WEBHOOK
-// IMPORTANT: Must be BEFORE express.json()
-// ======================================================
-
 app.post(
   "/api/payments/webhook",
   express.raw({ type: "application/json" }),
   handleWebhook
 );
 
-
-// ======================================================
 // SECURITY & CORE MIDDLEWARE
-// ======================================================
 
 app.use(helmet());
 
@@ -80,18 +72,13 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
 
-// ======================================================
 // LOGGER
-// ======================================================
 
 if (process.env.NODE_ENV === "development") {
   app.use(morgan("dev"));
 }
 
-
-// ======================================================
 // RATE LIMITING
-// ======================================================
 
 // Authentication rate limiter
 const authLimiter = rateLimit({
@@ -116,9 +103,7 @@ const generalLimiter = rateLimit({
 app.use("/api", generalLimiter);
 
 
-// ======================================================
 // HEALTH CHECK
-// ======================================================
 
 app.get("/api/health", (req, res) => {
   res.status(200).json({
@@ -128,9 +113,7 @@ app.get("/api/health", (req, res) => {
 });
 
 
-// ======================================================
 // API ROUTES
-// ======================================================
 
 app.use("/api/auth", authLimiter, authRoutes);
 
@@ -161,26 +144,20 @@ app.use("/api/custom-orders", customOrderRoutes);
 app.use("/api/notifications", notificationRoutes);
 
 
-// ======================================================
 // ERROR HANDLING
 // Must be LAST after all routes
-// ======================================================
 
 app.use(notFound);
 
 app.use(errorHandler);
 
 
-// ======================================================
 // HTTP SERVER
-// ======================================================
 
 const httpServer = createServer(app);
 
 
-// ======================================================
 // SOCKET.IO
-// ======================================================
 
 const io = new Server(httpServer, {
   cors: {
@@ -194,9 +171,7 @@ const io = new Server(httpServer, {
 io.use(socketAuthMiddleware);
 
 
-// ======================================================
 // SOCKET.IO CONNECTION
-// ======================================================
 
 io.on("connection", (socket) => {
   console.log(
@@ -204,7 +179,7 @@ io.on("connection", (socket) => {
   );
 
 
-  // ----------------------------------------------------
+  // ---------------------------------------------------
   // Admin shared room
   // ----------------------------------------------------
 
