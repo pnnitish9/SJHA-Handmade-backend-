@@ -29,9 +29,7 @@ import customOrderRoutes from "./routes/customOrderRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
 
 
-// ======================================================
 // APP INITIALIZATION
-// ======================================================
 
 const app = express();
 
@@ -54,9 +52,25 @@ app.post(
 
 app.use(helmet());
 
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "https://handmadesjha.vercel.app",
+];
+
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || "http://localhost:5173",
+    origin: function (origin, callback) {
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error(`CORS blocked: ${origin}`));
+    },
     credentials: true,
   })
 );
