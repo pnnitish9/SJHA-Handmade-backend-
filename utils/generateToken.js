@@ -7,16 +7,15 @@ export const signToken = (userId, role) => {
   });
 };
 
-// Attach the token as an HTTP-only cookie and send the JSON response
+// Attach the token as an HTTP-only cookie AND return it in the response body.
+// The cookie handles desktop browsers; the token in the body lets the frontend
+// store it in localStorage as a fallback for mobile browsers (Safari ITP,
+// Android WebViews) that block cross-origin cookies even with SameSite=None.
 export const sendTokenResponse = (user, statusCode, res) => {
   const token = signToken(user._id, user.role);
 
   const cookieExpiresDays = Number(process.env.JWT_COOKIE_EXPIRES_DAYS) || 7;
 
-  // Cross-origin deployments (frontend on Vercel, backend on Vercel/Render)
-  // require Secure + SameSite=None for the browser to send the cookie at all.
-  // We always use these flags — local dev with http://localhost still works
-  // because modern browsers allow SameSite=None on localhost.
   const cookieOptions = {
     expires: new Date(Date.now() + cookieExpiresDays * 24 * 60 * 60 * 1000),
     httpOnly: true,
@@ -30,6 +29,7 @@ export const sendTokenResponse = (user, statusCode, res) => {
     .cookie("token", token, cookieOptions)
     .json({
       success: true,
+      token, // consumed by the frontend axios interceptor for mobile fallback
       user: user.toSafeObject ? user.toSafeObject() : user,
     });
 };
