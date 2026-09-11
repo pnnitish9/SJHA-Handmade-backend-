@@ -4,6 +4,7 @@ import {
   getMyOrders,
   getOrder,
   cancelOrder,
+  retryPayment,
   getAllOrders,
   updateOrderStatus,
 } from "../controllers/orderController.js";
@@ -18,6 +19,7 @@ router.use(protect);
 router.post("/", createOrder);
 router.get("/mine", getMyOrders);
 router.patch("/:id/cancel", cancelOrder);
+router.get("/:id/retry-payment", retryPayment);
 
 // Admin — declared before the generic "/:id" so they aren't swallowed by it
 router.get("/", authorize("admin"), getAllOrders);

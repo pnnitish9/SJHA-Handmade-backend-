@@ -16,7 +16,7 @@ const statusHistorySchema = new mongoose.Schema(
   {
     status: {
       type: String,
-      enum: ["placed", "confirmed", "processing", "shipped", "delivered", "cancelled", "returned"],
+      enum: ["payment_pending", "placed", "confirmed", "processing", "shipped", "delivered", "cancelled", "returned"],
       required: true,
     },
     note: { type: String },
@@ -58,8 +58,8 @@ const orderSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["placed", "confirmed", "processing", "shipped", "delivered", "cancelled", "returned"],
-      default: "placed",
+      enum: ["payment_pending", "placed", "confirmed", "processing", "shipped", "delivered", "cancelled", "returned"],
+      default: "payment_pending",
     },
     statusHistory: [statusHistorySchema],
 

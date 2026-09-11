@@ -9,7 +9,7 @@ import { notify } from "../utils/notify.js";
 import { reserveStock, releaseStock } from "../utils/stockOps.js";
 import razorpay from "../config/razorpay.js";
 
-const CANCELLABLE_STATUSES = ["placed", "confirmed", "processing"];
+const CANCELLABLE_STATUSES = ["payment_pending", "placed", "confirmed", "processing"];
 const FLAT_SHIPPING_FEE = 50;
 const FREE_SHIPPING_THRESHOLD = 999;
 
@@ -21,7 +21,12 @@ function resolveStock(product, variantId) {
   return product.stock;
 }
 
-// @desc    Checkout — create an order from the current cart
+// @desc    Checkout — create a payment-pending order from the current cart.
+//          For Razorpay orders the order stays in "payment_pending" status
+//          until the frontend calls POST /api/payments/verify.  The cart is
+//          intentionally NOT cleared here so the customer can retry if they
+//          cancel or if payment fails.  Stock is reserved atomically so
+//          inventory doesn't oversell while the Razorpay modal is open.
 // @route   POST /api/orders
 // @access  Private
 export const createOrder = asyncHandler(async (req, res) => {
@@ -81,7 +86,9 @@ export const createOrder = asyncHandler(async (req, res) => {
     subtotal += price * item.quantity;
   }
 
-  // Coupon (optional)
+  // Coupon (optional) — validate now but do NOT increment usedCount yet.
+  // usedCount is incremented only after payment is confirmed so a coupon
+  // isn't consumed by a cancelled/failed payment attempt.
   let discount = 0;
   let couponDoc = null;
   if (couponCode) {
@@ -116,6 +123,8 @@ export const createOrder = asyncHandler(async (req, res) => {
     reserved.push({ productId: product._id, variantId: item.variantId, quantity: item.quantity });
   }
 
+  // Create the order in "payment_pending" state.  It will advance to
+  // "placed" → "confirmed" only after payment is verified.
   const order = await Order.create({
     orderNumber: generateOrderNumber(),
     user: req.user._id,
@@ -137,19 +146,13 @@ export const createOrder = asyncHandler(async (req, res) => {
     total,
     paymentMethod,
     paymentStatus: "pending",
-    status: "placed",
-    statusHistory: [{ status: "placed", note: "Order placed by customer" }],
+    status: "payment_pending",
+    statusHistory: [{ status: "payment_pending", note: "Awaiting payment" }],
   });
 
-  if (couponDoc) {
-    couponDoc.usedCount += 1;
-    await couponDoc.save();
-  }
-
-  // Clear the cart now that the order has captured a snapshot of it
-  cart.items = [];
-  await cart.save();
-
+  // For Razorpay: create the Razorpay order and a local Payment record.
+  // The cart is NOT cleared here — it is cleared only after verifyPayment
+  // succeeds so the customer keeps their cart if they cancel or payment fails.
   let razorpayOrder = null;
   if (paymentMethod === "razorpay") {
     try {
@@ -169,26 +172,36 @@ export const createOrder = asyncHandler(async (req, res) => {
       await order.save();
     } catch (err) {
       console.error(`Razorpay order creation failed: ${err.message}`);
-      // Compensate: release the stock we reserved and cancel the dangling
-      // order rather than leaving the customer with an unpayable "placed"
-      // order and no way to recover the reserved stock.
+      // Compensate: release reserved stock and delete the dangling order so
+      // the customer can try again cleanly.
       await Promise.all(reserved.map((r) => releaseStock(r.productId, r.variantId, r.quantity)));
-      order.status = "cancelled";
-      order.statusHistory.push({ status: "cancelled", note: "Payment gateway error during checkout" });
-      await order.save();
+      await Order.findByIdAndDelete(order._id);
       return res.status(502).json({ success: false, message: "Could not initiate payment. Please try again." });
     }
   }
 
-  // Non-blocking side effects
-  sendEmail({ to: req.user.email, ...orderConfirmationEmail(order, req.user.name) });
-  notify({
-    user: req.user._id,
-    type: "order_placed",
-    title: "Order placed",
-    message: `Your order ${order.orderNumber} has been placed.`,
-    link: `/orders/${order._id}`,
-  });
+  // COD orders are immediately confirmed — clear cart, increment coupon, notify.
+  if (paymentMethod === "cod") {
+    order.status = "placed";
+    order.statusHistory.push({ status: "placed", note: "Order placed by customer (COD)" });
+    await order.save();
+
+    if (couponDoc) {
+      couponDoc.usedCount += 1;
+      await couponDoc.save();
+    }
+    cart.items = [];
+    await cart.save();
+
+    sendEmail({ to: req.user.email, ...orderConfirmationEmail(order, req.user.name) });
+    notify({
+      user: req.user._id,
+      type: "order_placed",
+      title: "Order placed",
+      message: `Your order ${order.orderNumber} has been placed.`,
+      link: `/orders/${order._id}`,
+    });
+  }
 
   res.status(201).json({
     success: true,
@@ -200,10 +213,12 @@ export const createOrder = asyncHandler(async (req, res) => {
 });
 
 // @desc    Get the logged-in customer's order history
+//          payment_pending orders are excluded — they haven't been paid yet
+//          and should not appear in the order history.
 // @route   GET /api/orders/mine
 // @access  Private
 export const getMyOrders = asyncHandler(async (req, res) => {
-  const orders = await Order.find({ user: req.user._id }).sort("-createdAt");
+  const orders = await Order.find({ user: req.user._id, status: { $ne: "payment_pending" } }).sort("-createdAt");
   res.status(200).json({ success: true, orders });
 });
 
@@ -220,6 +235,36 @@ export const getOrder = asyncHandler(async (req, res) => {
   }
 
   res.status(200).json({ success: true, order });
+});
+
+// @desc    Retry payment for a payment_pending Razorpay order.
+//          Returns the stored Razorpay order details so the frontend can
+//          reopen the payment modal without creating a new order.
+// @route   GET /api/orders/:id/retry-payment
+// @access  Private (order owner only)
+export const retryPayment = asyncHandler(async (req, res) => {
+  const order = await Order.findById(req.params.id).populate("paymentRef");
+  if (!order) return res.status(404).json({ success: false, message: "Order not found." });
+  if (order.user.toString() !== req.user._id.toString()) {
+    return res.status(403).json({ success: false, message: "Not authorized." });
+  }
+  if (order.status !== "payment_pending" || order.paymentStatus !== "pending") {
+    return res.status(400).json({ success: false, message: "This order is not awaiting payment." });
+  }
+  const payment = order.paymentRef;
+  if (!payment?.razorpayOrderId) {
+    return res.status(400).json({ success: false, message: "Payment record not found for this order." });
+  }
+  res.status(200).json({
+    success: true,
+    order,
+    razorpay: {
+      orderId: payment.razorpayOrderId,
+      amount: Math.round(order.total * 100),
+      currency: "INR",
+      keyId: process.env.RAZORPAY_KEY_ID,
+    },
+  });
 });
 
 // @desc    Cancel an order (customer) — only while it's still cancellable
@@ -240,6 +285,15 @@ export const cancelOrder = asyncHandler(async (req, res) => {
 
   // Restock every item atomically
   await Promise.all(order.items.map((item) => releaseStock(item.product, item.variantId, item.quantity)));
+
+  // payment_pending orders haven't been confirmed — delete them outright so
+  // they never appear in order history.  For already-placed orders keep the
+  // record but mark it cancelled so the admin has an audit trail.
+  if (order.status === "payment_pending") {
+    await Payment.findByIdAndDelete(order.paymentRef);
+    await Order.findByIdAndDelete(order._id);
+    return res.status(200).json({ success: true, deleted: true });
+  }
 
   order.status = "cancelled";
   order.statusHistory.push({ status: "cancelled", note: "Cancelled by customer" });
