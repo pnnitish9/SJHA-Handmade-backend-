@@ -48,7 +48,7 @@ const orderSchema = new mongoose.Schema(
     shippingFee: { type: Number, default: 0 },
     total: { type: Number, required: true },
 
-    paymentMethod: { type: String, enum: ["razorpay", "cod"], required: true },
+    paymentMethod: { type: String, enum: ["razorpay"], required: true },
     paymentStatus: {
       type: String,
       enum: ["pending", "paid", "failed", "refunded"],
