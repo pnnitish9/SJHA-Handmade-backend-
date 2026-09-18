@@ -154,19 +154,24 @@ export const submitPaymentProof = asyncHandler(async (req, res) => {
     });
   }
 
-  // ── Upload screenshot to Cloudinary (optional) ───────────────────────────
+  // ── Upload screenshot to Cloudinary (required) ───────────────────────────
+  if (!req.file) {
+    return res.status(400).json({
+      success: false,
+      message: "Please upload a screenshot of your payment.",
+    });
+  }
+
   let screenshotData = {};
-  if (req.file) {
-    try {
-      const result = await uploadBufferToCloudinary(req.file.buffer, "payment-proofs");
-      screenshotData = { url: result.secure_url, publicId: result.public_id };
-    } catch (err) {
-      console.error(`Screenshot upload failed: ${err.message}`);
-      return res.status(500).json({
-        success: false,
-        message: "Failed to upload payment screenshot. Please try again.",
-      });
-    }
+  try {
+    const result = await uploadBufferToCloudinary(req.file.buffer, "payment-proofs");
+    screenshotData = { url: result.secure_url, publicId: result.public_id };
+  } catch (err) {
+    console.error(`Screenshot upload failed: ${err.message}`);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to upload payment screenshot. Please try again.",
+    });
   }
 
   // ── Create / update Payment record ───────────────────────────────────────
@@ -188,7 +193,7 @@ export const submitPaymentProof = asyncHandler(async (req, res) => {
     transactionId: cleanUTR,
     paymentDate: new Date(paymentDate),
     paymentTime: paymentTime.trim(),
-    screenshot: Object.keys(screenshotData).length ? screenshotData : undefined,
+    screenshot: screenshotData,
   };
 
   let payment;
