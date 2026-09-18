@@ -128,6 +128,7 @@ export const submitPaymentProof = asyncHandler(async (req, res) => {
   const missingFields = [];
   if (!transactionId?.trim()) missingFields.push("UTR / Transaction ID");
   if (!payerName?.trim())     missingFields.push("Name");
+  if (!payerPhone?.trim())    missingFields.push("Phone number");
   if (!paymentDate)           missingFields.push("Payment date");
   if (!paymentTime?.trim())   missingFields.push("Payment time");
   if (!upiMode?.trim())       missingFields.push("Payment mode");
