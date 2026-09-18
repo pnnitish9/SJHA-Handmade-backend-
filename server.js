@@ -11,7 +11,6 @@ import connectDB from "./config/db.js";
 import { notFound, errorHandler } from "./middleware/errorHandler.js";
 import { socketAuthMiddleware } from "./middleware/socketAuth.js";
 import { postMessage } from "./controllers/conversationController.js";
-import { handleWebhook } from "./controllers/paymentController.js";
 
 import authRoutes from "./routes/authRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
@@ -32,13 +31,6 @@ import notificationRoutes from "./routes/notificationRoutes.js";
 // APP INITIALIZATION
 
 const app = express();
-
-
-app.post(
-  "/api/payments/webhook",
-  express.raw({ type: "application/json" }),
-  handleWebhook
-);
 
 // SECURITY & CORE MIDDLEWARE
 

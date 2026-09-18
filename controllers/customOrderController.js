@@ -1,8 +1,6 @@
 import mongoose from "mongoose";
 import CustomOrder from "../models/CustomOrder.js";
 import Order from "../models/Order.js";
-import Payment from "../models/Payment.js";
-import razorpay from "../config/razorpay.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { uploadManyToCloudinary } from "../utils/cloudinaryUpload.js";
 import { notify } from "../utils/notify.js";
@@ -66,8 +64,7 @@ export const getAllCustomOrders = asyncHandler(async (req, res) => {
 });
 
 // @desc    Admin responds to / updates a custom order request.
-//          When approving, quotedPrice is required — it will be shown to the
-//          customer on their Pay Now button.
+//          When approving, quotedPrice is required.
 // @route   PATCH /api/custom-orders/:id
 // @access  Private/Admin
 export const respondToCustomOrder = asyncHandler(async (req, res) => {
@@ -80,7 +77,6 @@ export const respondToCustomOrder = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: "Invalid status." });
   }
 
-  // quotedPrice is mandatory when approving
   if (status === "approved") {
     const price = Number(quotedPrice);
     if (!price || price <= 0) {
@@ -118,7 +114,7 @@ export const respondToCustomOrder = asyncHandler(async (req, res) => {
           ? `<p><strong>Quoted price: ₹${customOrder.quotedPrice}</strong> — please log in and complete your payment to confirm the order.</p>`
           : ""}
         ${adminNotes ? `<p><strong>Note from us:</strong> ${adminNotes}</p>` : ""}
-        <p>— handmade_s.jha</p>
+        <p>— SJHA Handmade</p>
       `,
     });
   }
@@ -126,11 +122,11 @@ export const respondToCustomOrder = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, customOrder });
 });
 
-// @desc    Customer initiates Razorpay payment for an approved custom order.
-//          Creates a real Order document (source: "custom") + a Razorpay order,
-//          then returns the Razorpay credentials to the frontend.
-//          The order stays in "placed / paymentStatus: pending" until
-//          /api/payments/verify is called after the customer pays.
+// @desc    Customer initiates UPI manual payment for an approved custom order.
+//          Creates a real Order document (source: "custom") in payment_pending
+//          state, then returns it so the frontend can show the UPI QR and
+//          ultimately redirect the customer to submit proof via
+//          POST /api/orders/:orderId/payment-proof.
 // @route   POST /api/custom-orders/:id/initiate-payment
 // @access  Private
 export const initiateCustomOrderPayment = asyncHandler(async (req, res) => {
@@ -153,41 +149,23 @@ export const initiateCustomOrderPayment = asyncHandler(async (req, res) => {
       message: "No quoted price set for this custom order.",
     });
   }
-  if (customOrder.convertedOrder) {
-    // Payment was already initiated — return the existing order so the
-    // frontend can re-open Razorpay if the customer closed it without paying.
-    const existingOrder = await Order.findById(customOrder.convertedOrder);
-    const existingPayment = await Payment.findOne({ order: existingOrder._id });
-    if (existingOrder && existingPayment && existingOrder.paymentStatus === "pending") {
-      // Re-create a fresh Razorpay order (the old one may have expired)
-      const rzpOrder = await razorpay.orders.create({
-        amount: Math.round(customOrder.quotedPrice * 100),
-        currency: "INR",
-        receipt: existingOrder.orderNumber,
-      });
-      existingPayment.razorpayOrderId = rzpOrder.id;
-      await existingPayment.save();
 
-      return res.status(200).json({
-        success: true,
-        order: existingOrder,
-        razorpay: {
-          orderId: rzpOrder.id,
-          amount: rzpOrder.amount,
-          currency: rzpOrder.currency,
-          keyId: process.env.RAZORPAY_KEY_ID,
-        },
+  // If an order was already created (e.g. customer came back) reuse it
+  // as long as it hasn't been paid or cancelled.
+  if (customOrder.convertedOrder) {
+    const existingOrder = await Order.findById(customOrder.convertedOrder);
+    if (existingOrder && ["payment_pending", "payment_verification"].includes(existingOrder.status)) {
+      return res.status(200).json({ success: true, order: existingOrder });
+    }
+    if (existingOrder && existingOrder.paymentStatus === "paid") {
+      return res.status(400).json({
+        success: false,
+        message: "This custom order has already been paid for.",
       });
     }
-    // Already paid — nothing to do
-    return res.status(400).json({
-      success: false,
-      message: "This custom order has already been paid for.",
-    });
   }
 
-  // Build a shipping address from the customer's saved default address
-  // (or a minimal placeholder so the Order schema is satisfied).
+  // Build shipping address from customer's default saved address
   const customer = req.user;
   const defaultAddr = customer.addresses?.find((a) => a.isDefault) || customer.addresses?.[0];
   const shippingAddress = defaultAddr
@@ -211,12 +189,9 @@ export const initiateCustomOrderPayment = asyncHandler(async (req, res) => {
         country: "India",
       };
 
-  const orderNumber = generateOrderNumber();
-
-  // Create the real Order — items array holds a single synthetic line item
-  // describing the custom piece so it shows properly in order history.
+  // Create the Order in payment_pending state
   const order = await Order.create({
-    orderNumber,
+    orderNumber: generateOrderNumber(),
     user: req.user._id,
     items: [
       {
@@ -232,44 +207,17 @@ export const initiateCustomOrderPayment = asyncHandler(async (req, res) => {
     discount: 0,
     shippingFee: 0,
     total: customOrder.quotedPrice,
-    paymentMethod: "razorpay",
+    paymentMethod: "upi_manual",
     paymentStatus: "pending",
-    status: "placed",
-    statusHistory: [{ status: "placed", note: "Custom order — awaiting payment" }],
+    status: "payment_pending",
+    statusHistory: [{ status: "payment_pending", note: "Custom order — awaiting UPI payment" }],
     source: "custom",
     customOrderRef: customOrder._id,
   });
 
-  // Create Razorpay order
-  const rzpOrder = await razorpay.orders.create({
-    amount: Math.round(customOrder.quotedPrice * 100), // paise
-    currency: "INR",
-    receipt: orderNumber,
-  });
-
-  const payment = await Payment.create({
-    order: order._id,
-    user: req.user._id,
-    razorpayOrderId: rzpOrder.id,
-    amount: customOrder.quotedPrice,
-    status: "created",
-  });
-
-  order.paymentRef = payment._id;
-  await order.save();
-
-  // Link the real order back to the custom order request
+  // Link the Order back to the custom order request
   customOrder.convertedOrder = order._id;
   await customOrder.save();
 
-  res.status(201).json({
-    success: true,
-    order,
-    razorpay: {
-      orderId: rzpOrder.id,
-      amount: rzpOrder.amount,
-      currency: rzpOrder.currency,
-      keyId: process.env.RAZORPAY_KEY_ID,
-    },
-  });
+  res.status(201).json({ success: true, order });
 });

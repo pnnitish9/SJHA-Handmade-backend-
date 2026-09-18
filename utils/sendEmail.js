@@ -58,3 +58,30 @@ export const orderStatusEmail = (order, userName) => ({
     <p>— SJHA Handmade</p>
   `,
 });
+
+export const paymentRejectedEmail = (order, userName, reason) => ({
+  subject: `Payment rejected — ${order.orderNumber}`,
+  html: `
+    <p>Hi ${userName},</p>
+    <p>Unfortunately, your payment for order <strong>${order.orderNumber}</strong> could not be verified.</p>
+    <p><strong>Reason:</strong> ${reason}</p>
+    <p>Your reserved items have been released. You are welcome to place a new order and try again.</p>
+    <p>If you believe this is an error, please contact us with your UTR / transaction ID.</p>
+    <p>— SJHA Handmade</p>
+  `,
+});
+
+export const paymentVerifiedEmail = (order, userName) => ({
+  subject: `Payment verified — ${order.orderNumber}`,
+  html: `
+    <p>Hi ${userName},</p>
+    <p>Great news! Your payment for order <strong>${order.orderNumber}</strong> has been verified.</p>
+    <p>Your order is now confirmed and we are preparing it for dispatch.</p>
+    <ul>
+      ${order.items.map((item) => `<li>${item.name} × ${item.quantity} — ₹${item.price * item.quantity}</li>`).join("")}
+    </ul>
+    <p><strong>Total: ₹${order.total}</strong></p>
+    <p>We'll email you again when your order ships.</p>
+    <p>— SJHA Handmade</p>
+  `,
+});

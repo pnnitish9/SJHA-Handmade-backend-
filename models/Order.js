@@ -16,7 +16,18 @@ const statusHistorySchema = new mongoose.Schema(
   {
     status: {
       type: String,
-      enum: ["payment_pending", "placed", "confirmed", "processing", "shipped", "delivered", "cancelled", "returned"],
+      enum: [
+        "payment_pending",       // order created, no proof yet
+        "payment_verification",  // proof submitted, awaiting admin
+        "placed",
+        "confirmed",
+        "processing",
+        "shipped",
+        "delivered",
+        "payment_failed",        // admin rejected or payment failed
+        "cancelled",
+        "returned",
+      ],
       required: true,
     },
     note: { type: String },
@@ -48,24 +59,39 @@ const orderSchema = new mongoose.Schema(
     shippingFee: { type: Number, default: 0 },
     total: { type: Number, required: true },
 
-    paymentMethod: { type: String, enum: ["razorpay"], required: true },
+    paymentMethod: {
+      type: String,
+      enum: ["upi_manual", "razorpay", "cod"], // "razorpay"/"cod" kept for historical records
+      required: true,
+    },
     paymentStatus: {
       type: String,
-      enum: ["pending", "paid", "failed", "refunded"],
+      enum: ["pending", "verification_pending", "paid", "rejected", "failed", "refunded"],
       default: "pending",
     },
     paymentRef: { type: mongoose.Schema.Types.ObjectId, ref: "Payment" },
 
     status: {
       type: String,
-      enum: ["payment_pending", "placed", "confirmed", "processing", "shipped", "delivered", "cancelled", "returned"],
+      enum: [
+        "payment_pending",
+        "payment_verification",
+        "placed",
+        "confirmed",
+        "processing",
+        "shipped",
+        "delivered",
+        "payment_failed",
+        "cancelled",
+        "returned",
+      ],
       default: "payment_pending",
     },
     statusHistory: [statusHistorySchema],
 
     trackingNumber: { type: String },
     isReviewed: { type: Boolean, default: false },
-    source: { type: String, enum: ["shop", "custom"], default: "shop" }, // "custom" = originated from a custom order request
+    source: { type: String, enum: ["shop", "custom"], default: "shop" },
     customOrderRef: { type: mongoose.Schema.Types.ObjectId, ref: "CustomOrder", default: null },
   },
   { timestamps: true }
@@ -73,6 +99,6 @@ const orderSchema = new mongoose.Schema(
 
 orderSchema.index({ user: 1, createdAt: -1 });
 orderSchema.index({ orderNumber: 1 });
-orderSchema.index({ status: 1, createdAt: -1 }); // matches admin order list: filter by status, sort by date
+orderSchema.index({ status: 1, createdAt: -1 });
 
 export default mongoose.model("Order", orderSchema);
